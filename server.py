@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from google import genai
 import os
+from groq import Groq
 
 app = FastAPI()
 
@@ -15,15 +15,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Подтягиваем ключ из настроек Render
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Подтягиваем ключ Groq из настроек Render
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-if GEMINI_API_KEY:
-    # Инициализация клиента Google GenAI
-    client = genai.Client(api_key=GEMINI_API_KEY)
+if GROQ_API_KEY:
+    # Инициализация клиента Groq
+    client = Groq(api_key=GROQ_API_KEY)
 else:
     client = None
-    print("ВНИМАНИЕ: Ключ GEMINI_API_KEY не найден в Environment Variables!")
+    print("ВНИМАНИЕ: Ключ GROQ_API_KEY не найден в Environment Variables!")
 
 class ChatRequest(BaseModel):
     text: str
@@ -31,23 +31,30 @@ class ChatRequest(BaseModel):
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
     if not client:
-        return {"reply": "Ошибка сервера: API ключ не добавлен в настройки Render."}
+        return {"reply": "Ошибка сервера: API ключ GROQ_API_KEY не добавлен в настройки Render."}
         
     try:
-        prompt = f"Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). Отвечай кратко, дружелюбно, используй эмодзи по минимуму.\n\nВопрос ученика: {req.text}"
+        # Системный промпт (поведение ИИ)
+        system_prompt = "Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). Отвечай на русском языке кратко, дружелюбно, используй эмодзи по минимуму."
         
-        # АЛЬТЕРНАТИВА: Используем gemini-1.5-flash (У нее огромные бесплатные лимиты - 1500 запросов в день!)
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=prompt,
+        # Запрос к сверхбыстрой модели Llama 3.3 через Groq
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Вопрос ученика: {req.text}"}
+            ],
+            temperature=0.7,
+            max_tokens=1024,
         )
-        return {"reply": response.text}
+        
+        return {"reply": response.choices[0].message.content}
+        
     except Exception as e:
         error_msg = str(e)
         print(f"Детальная ошибка: {error_msg}")
         
-        # Красивая обработка ошибки 429 для пользователя
-        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-            return {"reply": "Упс! Кажется, нейросеть сейчас немного перегружена запросами ⏳ Пожалуйста, подожди около минуты и попробуй снова!"}
+        if "429" in error_msg or "rate limit" in error_msg.lower():
+            return {"reply": "Упс! Кажется, нейросеть сейчас немного перегружена запросами ⏳ Пожалуйста, подожди несколько секунд и попробуй снова!"}
             
-        return {"reply": "Произошла ошибка на сервере при обращении к ИИ. Проверь логи (Logs) на Render."}
+        return {"reply": f"Произошла ошибка на сервере при обращении к ИИ. Проверь логи (Logs) на Render."}
