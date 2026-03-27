@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from google import genai
+from google import genai  # <-- ВОТ ТОТ САМЫЙ НОВЫЙ ИМПОРТ
 import os
 
 app = FastAPI()
@@ -36,7 +36,7 @@ async def chat_endpoint(req: ChatRequest):
     try:
         prompt = f"Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). Отвечай кратко, дружелюбно, используй эмодзи по минимуму.\n\nВопрос ученика: {req.text}"
         
-        # Запрос к самой современной модели
+        # Запрос к самой современной модели через НОВУЮ библиотеку
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
@@ -44,4 +44,4 @@ async def chat_endpoint(req: ChatRequest):
         return {"reply": response.text}
     except Exception as e:
         print(f"Детальная ошибка: {str(e)}")
-        return {"reply": "Произошла ошибка на сервере при обращении к ИИ. Проверь логи (Logs) на Render."}
+        return {"reply": f"Произошла ошибка на сервере при обращении к ИИ: {str(e)}"}
