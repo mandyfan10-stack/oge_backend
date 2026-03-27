@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import google.generativeai as genai
+from google import genai
 import os
 
 app = FastAPI()
 
-# Разрешаем запросы с любого сайта
+# Разрешаем запросы с твоего сайта
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,10 +19,10 @@ app.add_middleware(
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    # ИСПОЛЬЗУЕМ СТАБИЛЬНУЮ ВЕРСИЮ 1.5
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # Инициализация нового клиента Google GenAI
+    client = genai.Client(api_key=GEMINI_API_KEY)
 else:
+    client = None
     print("ВНИМАНИЕ: Ключ GEMINI_API_KEY не найден в Environment Variables!")
 
 class ChatRequest(BaseModel):
@@ -30,13 +30,18 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
-    if not GEMINI_API_KEY:
-        return {"reply": "Ошибка сервера: API ключ не добавлен в настройки Render (Environment)."}
+    if not client:
+        return {"reply": "Ошибка сервера: API ключ не добавлен в настройки Render."}
         
     try:
         prompt = f"Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). Отвечай кратко, дружелюбно, используй эмодзи по минимуму.\n\nВопрос ученика: {req.text}"
-        response = model.generate_content(prompt)
+        
+        # Запрос к самой современной модели
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
         return {"reply": response.text}
     except Exception as e:
         print(f"Детальная ошибка: {str(e)}")
-        return {"reply": f"Произошла ошибка на сервере при обращении к ИИ. Проверь логи (Logs) на Render."}
+        return {"reply": "Произошла ошибка на сервере при обращении к ИИ. Проверь логи (Logs) на Render."}
