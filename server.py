@@ -2,7 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
+import logging
 from groq import Groq
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 app = FastAPI()
 
@@ -23,7 +27,7 @@ if GROQ_API_KEY:
     client = Groq(api_key=GROQ_API_KEY)
 else:
     client = None
-    print("ВНИМАНИЕ: Ключ GROQ_API_KEY не найден в Environment Variables!")
+    logging.warning("ВНИМАНИЕ: Ключ GROQ_API_KEY не найден в Environment Variables!")
 
 class ChatRequest(BaseModel):
     text: str
@@ -52,7 +56,7 @@ async def chat_endpoint(req: ChatRequest):
         
     except Exception as e:
         error_msg = str(e)
-        print(f"Детальная ошибка: {error_msg}")
+        logging.exception("Детальная ошибка:")
         
         if "429" in error_msg or "rate limit" in error_msg.lower():
             return {"reply": "Упс! Кажется, нейросеть сейчас немного перегружена запросами ⏳ Пожалуйста, подожди несколько секунд и попробуй снова!"}
