@@ -2,7 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import os
+import logging
+import groq
 from groq import AsyncGroq
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 app = FastAPI()
 
@@ -54,11 +58,8 @@ async def chat_endpoint(req: ChatRequest):
         
         return {"reply": response.choices[0].message.content}
         
+    except groq.RateLimitError:
+        return {"reply": "Упс! Кажется, нейросеть сейчас немного перегружена запросами ⏳ Пожалуйста, подожди несколько секунд и попробуй снова!"}
     except Exception as e:
-        error_msg = str(e)
-        print(f"Детальная ошибка: {error_msg}")
-        
-        if "429" in error_msg or "rate limit" in error_msg.lower():
-            return {"reply": "Упс! Кажется, нейросеть сейчас немного перегружена запросами ⏳ Пожалуйста, подожди несколько секунд и попробуй снова!"}
-            
+        logging.exception("Детальная ошибка:")
         return {"reply": f"Произошла ошибка на сервере при обращении к ИИ. Проверь логи (Logs) на Render."}
