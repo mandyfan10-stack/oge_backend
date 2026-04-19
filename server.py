@@ -5,15 +5,20 @@ import os
 import logging
 import groq
 from groq import AsyncGroq
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 app = FastAPI()
 
 # Configure CORS securely
-# Get allowed origins from environment variable, defaulting to an empty list for security
+# Get allowed origins from environment variable,
+# defaulting to an empty list for security
 allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "")
-allowed_origins = [origin.strip() for origin in allowed_origins_str.split(",") if origin.strip()]
+allowed_origins = [
+    origin.strip() for origin in allowed_origins_str.split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,23 +33,36 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if GROQ_API_KEY:
     # Инициализация асинхронного клиента Groq
-    client = AsyncGroq(api_key=GROQ_API_KEY)
+    client: Optional[AsyncGroq] = AsyncGroq(api_key=GROQ_API_KEY)
 else:
     client = None
     print("ВНИМАНИЕ: Ключ GROQ_API_KEY не найден в Environment Variables!")
 
+
 class ChatRequest(BaseModel):
-    text: str = Field(..., min_length=1, max_length=2000, description="User's chat message")
+    text: str = Field(
+        ..., min_length=1, max_length=2000, description="User's chat message"
+    )
+
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
     if not client:
-        return {"reply": "Ошибка сервера: API ключ GROQ_API_KEY не добавлен в настройки Render."}
-        
+        return {
+            "reply": (
+                "Ошибка сервера: API ключ GROQ_API_KEY не добавлен "
+                "в настройки Render."
+            )
+        }
+
     try:
         # Системный промпт (поведение ИИ)
-        system_prompt = "Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). Отвечай на русском языке кратко, дружелюбно, используй эмодзи по минимуму."
-        
+        system_prompt = (
+            "Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). "
+            "Отвечай на русском языке кратко, дружелюбно, "
+            "используй эмодзи по минимуму."
+        )
+
         # Асинхронный запрос к сверхбыстрой модели Llama 3.3 через Groq
         response = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -55,11 +73,22 @@ async def chat_endpoint(req: ChatRequest):
             temperature=0.7,
             max_tokens=1024,
         )
-        
+
         return {"reply": response.choices[0].message.content}
-        
+
     except groq.RateLimitError:
-        return {"reply": "Упс! Кажется, нейросеть сейчас немного перегружена запросами ⏳ Пожалуйста, подожди несколько секунд и попробуй снова!"}
-    except Exception as e:
+        return {
+            "reply": (
+                "Упс! Кажется, нейросеть сейчас немного перегружена "
+                "запросами ⏳ Пожалуйста, подожди несколько секунд "
+                "и попробуй снова!"
+            )
+        }
+    except Exception:
         logging.exception("Детальная ошибка:")
-        return {"reply": f"Произошла ошибка на сервере при обращении к ИИ. Проверь логи (Logs) на Render."}
+        return {
+            "reply": (
+                "Произошла ошибка на сервере при обращении к ИИ. "
+                "Проверь логи (Logs) на Render."
+            )
+        }
