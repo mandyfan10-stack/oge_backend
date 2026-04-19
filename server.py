@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
-from groq import Groq
+from groq import AsyncGroq
 
 app = FastAPI()
 
@@ -19,8 +19,8 @@ app.add_middleware(
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if GROQ_API_KEY:
-    # Инициализация клиента Groq
-    client = Groq(api_key=GROQ_API_KEY)
+    # Инициализация асинхронного клиента Groq
+    client = AsyncGroq(api_key=GROQ_API_KEY)
 else:
     client = None
     print("ВНИМАНИЕ: Ключ GROQ_API_KEY не найден в Environment Variables!")
@@ -37,8 +37,8 @@ async def chat_endpoint(req: ChatRequest):
         # Системный промпт (поведение ИИ)
         system_prompt = "Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). Отвечай на русском языке кратко, дружелюбно, используй эмодзи по минимуму."
         
-        # Запрос к сверхбыстрой модели Llama 3.3 через Groq
-        response = client.chat.completions.create(
+        # Асинхронный запрос к сверхбыстрой модели Llama 3.3 через Groq
+        response = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_prompt},
