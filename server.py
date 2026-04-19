@@ -6,10 +6,14 @@ from groq import Groq
 
 app = FastAPI()
 
-# Разрешаем запросы с твоего сайта
+# Configure CORS securely
+# Get allowed origins from environment variable, defaulting to an empty list for security
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "")
+allowed_origins = [origin.strip() for origin in allowed_origins_str.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
