@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import os
 from groq import AsyncGroq
 
@@ -30,7 +30,7 @@ else:
     print("ВНИМАНИЕ: Ключ GROQ_API_KEY не найден в Environment Variables!")
 
 class ChatRequest(BaseModel):
-    text: str
+    text: str = Field(..., min_length=1, max_length=2000, description="User's chat message")
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
