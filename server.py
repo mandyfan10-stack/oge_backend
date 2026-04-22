@@ -59,8 +59,7 @@ async def chat_endpoint(req: ChatRequest):
     if not client:
         return {
             "reply": (
-                "Ошибка сервера: API ключ GROQ_API_KEY не добавлен "
-                "в настройки Render."
+                "Ошибка сервера: Сервис временно недоступен."
             )
         }
 
@@ -98,6 +97,6 @@ async def chat_endpoint(req: ChatRequest):
         return {
             "reply": (
                 "Произошла ошибка на сервере при обращении к ИИ. "
-                "Проверь логи (Logs) на Render."
+                "Пожалуйста, попробуй позже."
             )
         }
