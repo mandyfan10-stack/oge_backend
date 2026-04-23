@@ -42,7 +42,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if GROQ_API_KEY:
     # Инициализация асинхронного клиента Groq
-    client: Optional[AsyncGroq] = AsyncGroq(api_key=GROQ_API_KEY)
+    client: Optional[AsyncGroq] = AsyncGroq(api_key=GROQ_API_KEY, timeout=10.0)
 else:
     client = None
     print("ВНИМАНИЕ: Ключ GROQ_API_KEY не найден в Environment Variables!")
@@ -84,6 +84,14 @@ async def chat_endpoint(req: ChatRequest):
 
         return {"reply": response.choices[0].message.content}
 
+    except groq.APITimeoutError:
+        logging.warning("Groq API timeout")
+        return {
+            "reply": (
+                "Превышено время ожидания ответа от ИИ. "
+                "Пожалуйста, попробуй позже."
+            )
+        }
     except groq.RateLimitError:
         return {
             "reply": (
