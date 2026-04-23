@@ -16,5 +16,5 @@ def test_missing_groq_api_key():
 
         assert response.status_code == 200
         assert response.json() == {
-            "reply": "Ошибка сервера: API ключ GROQ_API_KEY не добавлен в настройки Render."
+            "reply": "Ошибка сервера: Сервис временно недоступен."
         }
