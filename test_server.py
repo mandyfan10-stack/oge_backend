@@ -18,3 +18,17 @@ def test_missing_groq_api_key():
         assert response.json() == {
             "reply": "Ошибка сервера: Сервис временно недоступен."
         }
+
+import groq
+def test_groq_timeout_error():
+    with patch("server.client") as mock_client:
+        mock_client.chat.completions.create.side_effect = groq.APITimeoutError(request=None)
+        response = client.post(
+            "/api/chat",
+            json={"text": "Привет"}
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "reply": "Превышено время ожидания ответа от ИИ. Пожалуйста, попробуй позже."
+        }

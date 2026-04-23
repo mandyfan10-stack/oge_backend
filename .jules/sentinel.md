@@ -6,3 +6,7 @@
 **Vulnerability:** The API endpoints were returning verbose error messages that exposed the internal name of an environment variable (`GROQ_API_KEY`) and the underlying hosting infrastructure (`Render`).
 **Learning:** Returning detailed error messages directly to the client can be a security risk (Information Leakage). In a production environment, this exposes internal configuration or infrastructure details to an attacker, potentially assisting in further reconnaissance or targeted attacks.
 **Prevention:** All unhandled exceptions or configuration errors must be caught and logged securely on the server using `logging.exception()`, but the HTTP response must contain only generic, non-descriptive messages like "Сервис временно недоступен" or "Пожалуйста, попробуй позже".
+## 2024-05-21 - Missing External API Timeout
+**Vulnerability:** The instantiation of the `AsyncGroq` client did not specify a timeout, risking potential resource exhaustion if the external API hung indefinitely.
+**Learning:** External API clients may have high default timeouts (or lack them completely for reads). An unresponsive external service can tie up server connections/threads, leading to a Denial of Service.
+**Prevention:** Always set an explicit `timeout` configuration when instantiating external clients (e.g., `AsyncGroq(..., timeout=10.0)`) and explicitly catch timeout exceptions to fail gracefully.
