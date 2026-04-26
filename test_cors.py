@@ -49,10 +49,36 @@ def test_cors_multiple_origins(monkeypatch):
 
 
 def test_cors_no_allowed_origins(monkeypatch):
-    client = make_client(monkeypatch, "")
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+    monkeypatch.delenv("allowed_origins", raising=False)
+    reload(server)
+    client = TestClient(server.app)
+    response = preflight(client, "https://mandyfan10-stack.github.io")
+
+    assert (
+        response.headers.get("Access-Control-Allow-Origin")
+        == "https://mandyfan10-stack.github.io"
+    )
+
+
+def test_cors_rejects_unknown_origin_when_using_default_origins(monkeypatch):
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+    monkeypatch.delenv("allowed_origins", raising=False)
+    reload(server)
+    client = TestClient(server.app)
     response = preflight(client, "https://example.com")
 
     assert response.headers.get("Access-Control-Allow-Origin") is None
+
+
+def test_cors_empty_allowed_origins_uses_default_origins(monkeypatch):
+    client = make_client(monkeypatch, "")
+    response = preflight(client, "https://mandyfan10-stack.github.io")
+
+    assert (
+        response.headers.get("Access-Control-Allow-Origin")
+        == "https://mandyfan10-stack.github.io"
+    )
 
 
 def test_lowercase_allowed_origins_alias_is_supported(monkeypatch):
