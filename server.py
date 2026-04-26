@@ -10,7 +10,9 @@ from pydantic import BaseModel, Field, field_validator
 
 LOG_FORMAT = "%(levelname)s: %(message)s"
 GROQ_API_KEY_ENV = "GROQ_API_KEY"
+GROQ_API_KEY_ALIASES = ("groq_api_key",)
 ALLOWED_ORIGINS_ENV = "ALLOWED_ORIGINS"
+ALLOWED_ORIGINS_ALIASES = ("allowed_origins",)
 
 SYSTEM_PROMPT = (
     "Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). "
@@ -50,13 +52,28 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 
+def get_env(name: str, aliases: tuple[str, ...] = ()) -> str:
+    for env_name in (name, *aliases):
+        value = os.getenv(env_name)
+        if value:
+            if env_name != name:
+                logger.warning(
+                    "Используется переменная %s. Лучше переименовать ее в %s.",
+                    env_name,
+                    name,
+                )
+            return value
+
+    return ""
+
+
 def get_allowed_origins() -> list[str]:
-    origins = os.getenv(ALLOWED_ORIGINS_ENV, "")
+    origins = get_env(ALLOWED_ORIGINS_ENV, ALLOWED_ORIGINS_ALIASES)
     return [origin.strip() for origin in origins.split(",") if origin.strip()]
 
 
 def create_groq_client() -> Optional[AsyncGroq]:
-    api_key = os.getenv(GROQ_API_KEY_ENV)
+    api_key = get_env(GROQ_API_KEY_ENV, GROQ_API_KEY_ALIASES)
 
     if not api_key:
         logger.warning("Ключ %s не найден в Environment Variables.", GROQ_API_KEY_ENV)
@@ -85,6 +102,15 @@ async def add_security_headers(request, call_next):
 
 
 client = create_groq_client()
+
+
+@app.get("/api/health")
+async def health_check():
+    return {
+        "status": "ok",
+        "ai_configured": client is not None,
+        "cors_configured": bool(get_allowed_origins()),
+    }
 
 
 class ChatRequest(BaseModel):
