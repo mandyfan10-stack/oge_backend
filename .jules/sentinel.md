@@ -1,8 +1,5 @@
-## 2024-05-19 - Content-Security-Policy for FastAPI Docs
-**Vulnerability:** Missing Content-Security-Policy header, leaving application more vulnerable to XSS and data injection attacks.
-**Learning:** Adding a generic strict CSP breaks FastAPI's auto-generated Swagger UI/ReDoc documentation because they rely on external CDNs (cdn.jsdelivr.net, fastapi.tiangolo.com).
-**Prevention:** When applying CSP to FastAPI apps, explicitly allow necessary sources for the documentation (`script-src 'unsafe-inline' cdn.jsdelivr.net`, `style-src 'unsafe-inline' cdn.jsdelivr.net`, `img-src data: fastapi.tiangolo.com`) so the docs continue to function.
-## 2024-05-20 - Information Leakage in Error Responses
-**Vulnerability:** The API endpoints were returning verbose error messages that exposed the internal name of an environment variable (`GROQ_API_KEY`) and the underlying hosting infrastructure (`Render`).
-**Learning:** Returning detailed error messages directly to the client can be a security risk (Information Leakage). In a production environment, this exposes internal configuration or infrastructure details to an attacker, potentially assisting in further reconnaissance or targeted attacks.
-**Prevention:** All unhandled exceptions or configuration errors must be caught and logged securely on the server using `logging.exception()`, but the HTTP response must contain only generic, non-descriptive messages like "Сервис временно недоступен" or "Пожалуйста, попробуй позже".
+## 2024-04-26 - Add IP Rate Limiting to /api/chat
+
+**Vulnerability:** The `/api/chat` endpoint handles expensive external API calls to Groq without any rate limiting. It was vulnerable to Denial of Service (DoS) and API limit exhaustion. If using X-Forwarded-For to get IP, it was also vulnerable to IP spoofing to bypass limits.
+**Learning:** In a single-instance FastAPI app, a simple in-memory defaultdict with a sliding window of timestamps can prevent basic DoS. Using `request.headers.get("x-forwarded-for")` blindly to get the IP address allows attackers to spoof their IP address to bypass the rate limit, so `request.client.host` should be used instead. Unbounded dictionaries can cause memory leaks, so it is necessary to delete empty keys and cap the max size of the tracking dictionary.
+**Prevention:** Implement rate limiting early for endpoints making expensive 3rd-party calls. Don't trust `X-Forwarded-For` for security mechanisms unless running behind a trusted reverse proxy that guarantees the header is properly set. Always cap in-memory tracking structures to prevent OOM errors.

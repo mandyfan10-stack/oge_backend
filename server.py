@@ -3,7 +3,9 @@ import os
 from typing import Any, Optional
 
 import groq
-from fastapi import FastAPI
+import collections
+import time
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from groq import AsyncGroq
 from pydantic import BaseModel, Field, field_validator
@@ -86,6 +88,11 @@ def create_groq_client() -> Optional[AsyncGroq]:
     return AsyncGroq(api_key=api_key, timeout=10.0)
 
 
+# Rate limiting configuration (10 requests per minute per IP)
+RATE_LIMIT_WINDOW = 60
+RATE_LIMIT_MAX_REQUESTS = 10
+request_counts: dict[str, list[float]] = collections.defaultdict(list)
+
 app = FastAPI()
 allowed_origins = get_allowed_origins()
 
@@ -138,9 +145,34 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/api/chat")
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(req: ChatRequest, request: Request):
     if not client:
         return {"reply": SERVICE_UNAVAILABLE_REPLY}
+
+    # IP-based rate limiting to prevent API abuse and DoS
+    # 🛡️ Sentinel: Added rate limiting to prevent abuse
+    # Use request.client.host instead of trusting x-forwarded-for which can be spoofed easily
+    client_ip = request.client.host if request.client else "unknown"
+
+    current_time = time.time()
+    # Clean up old requests
+    request_counts[client_ip] = [t for t in request_counts[client_ip] if current_time - t < RATE_LIMIT_WINDOW]
+
+    # Clean up empty list to prevent memory leak
+    if not request_counts[client_ip]:
+        del request_counts[client_ip]
+
+    # Cap total IPs tracked to prevent unbounded growth
+    if len(request_counts) > 10000:
+        request_counts.clear()
+
+    if len(request_counts.get(client_ip, [])) >= RATE_LIMIT_MAX_REQUESTS:
+        logger.warning("Сработало ограничение скорости (Rate Limit) для IP: %s", client_ip)
+        return {"reply": RATE_LIMIT_REPLY}
+
+    if client_ip not in request_counts:
+        request_counts[client_ip] = []
+    request_counts[client_ip].append(current_time)
 
     try:
         response = await client.chat.completions.create(
