@@ -1,82 +1,120 @@
+import logging
+import os
+from typing import Any, Optional
+
+import groq
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-import os
-import logging
-import groq
 from groq import AsyncGroq
-from typing import Optional
+from pydantic import BaseModel, Field, field_validator
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+LOG_FORMAT = "%(levelname)s: %(message)s"
+GROQ_API_KEY_ENV = "GROQ_API_KEY"
+ALLOWED_ORIGINS_ENV = "ALLOWED_ORIGINS"
+
+SYSTEM_PROMPT = (
+    "Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). "
+    "Отвечай на русском языке кратко, дружелюбно, "
+    "используй эмодзи по минимуму."
+)
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "
+        "img-src 'self' data: fastapi.tiangolo.com;"
+    ),
+}
+
+SERVICE_UNAVAILABLE_REPLY = "Ошибка сервера: Сервис временно недоступен."
+RATE_LIMIT_REPLY = (
+    "Упс! Кажется, нейросеть сейчас немного перегружена запросами ⏳ "
+    "Пожалуйста, подожди несколько секунд и попробуй снова!"
+)
+TIMEOUT_REPLY = (
+    "Превышено время ожидания ответа от ИИ. Пожалуйста, попробуй позже."
+)
+GENERIC_ERROR_REPLY = (
+    "Произошла ошибка на сервере при обращении к ИИ. "
+    "Пожалуйста, попробуй позже."
+)
+
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+logger = logging.getLogger(__name__)
+
 
 app = FastAPI()
 
-# Configure CORS securely
-# Get allowed origins from environment variable,
-# defaulting to an empty list for security
-allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "")
-allowed_origins = [
-    origin.strip() for origin in allowed_origins_str.split(",")
-    if origin.strip()
-]
+
+def get_allowed_origins() -> list[str]:
+    origins = os.getenv(ALLOWED_ORIGINS_ENV, "")
+    return [origin.strip() for origin in origins.split(",") if origin.strip()]
+
+
+def create_groq_client() -> Optional[AsyncGroq]:
+    api_key = os.getenv(GROQ_API_KEY_ENV)
+
+    if not api_key:
+        logger.warning("Ключ %s не найден в Environment Variables.", GROQ_API_KEY_ENV)
+        return None
+
+    return AsyncGroq(api_key=api_key, timeout=10.0)
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
 @app.middleware("http")
 async def add_security_headers(request, call_next):
     response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net; img-src 'self' data: fastapi.tiangolo.com;"
+
+    for header, value in SECURITY_HEADERS.items():
+        response.headers[header] = value
+
     return response
 
-# Подтягиваем ключ Groq из настроек Render
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-if GROQ_API_KEY:
-    # Инициализация асинхронного клиента Groq
-    client: Optional[AsyncGroq] = AsyncGroq(api_key=GROQ_API_KEY, timeout=10.0)
-else:
-    client = None
-    print("ВНИМАНИЕ: Ключ GROQ_API_KEY не найден в Environment Variables!")
+client = create_groq_client()
 
 
 class ChatRequest(BaseModel):
     text: str = Field(
-        ..., min_length=1, max_length=2000, description="User's chat message"
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="User's chat message",
     )
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def strip_text(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+
+        return value
 
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
     if not client:
-        return {
-            "reply": (
-                "Ошибка сервера: Сервис временно недоступен."
-            )
-        }
+        return {"reply": SERVICE_UNAVAILABLE_REPLY}
 
     try:
-        # Системный промпт (поведение ИИ)
-        system_prompt = (
-            "Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). "
-            "Отвечай на русском языке кратко, дружелюбно, "
-            "используй эмодзи по минимуму."
-        )
-
-        # Асинхронный запрос к сверхбыстрой модели Llama 3.3 через Groq
         response = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Вопрос ученика: {req.text}"}
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"Вопрос ученика: {req.text}"},
             ],
             temperature=0.7,
             max_tokens=1024,
@@ -85,26 +123,10 @@ async def chat_endpoint(req: ChatRequest):
         return {"reply": response.choices[0].message.content}
 
     except groq.RateLimitError:
-        return {
-            "reply": (
-                "Упс! Кажется, нейросеть сейчас немного перегружена "
-                "запросами ⏳ Пожалуйста, подожди несколько секунд "
-                "и попробуй снова!"
-            )
-        }
+        return {"reply": RATE_LIMIT_REPLY}
     except groq.APITimeoutError:
-        logging.exception("Превышено время ожидания от API Groq:")
-        return {
-            "reply": (
-                "Превышено время ожидания ответа от ИИ. "
-                "Пожалуйста, попробуй позже."
-            )
-        }
+        logger.exception("Превышено время ожидания от API Groq.")
+        return {"reply": TIMEOUT_REPLY}
     except Exception:
-        logging.exception("Детальная ошибка:")
-        return {
-            "reply": (
-                "Произошла ошибка на сервере при обращении к ИИ. "
-                "Пожалуйста, попробуй позже."
-            )
-        }
+        logger.exception("Ошибка при обращении к API Groq.")
+        return {"reply": GENERIC_ERROR_REPLY}
