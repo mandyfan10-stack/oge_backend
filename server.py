@@ -13,6 +13,7 @@ GROQ_API_KEY_ENV = "GROQ_API_KEY"
 GROQ_API_KEY_ALIASES = ("groq_api_key",)
 ALLOWED_ORIGINS_ENV = "ALLOWED_ORIGINS"
 ALLOWED_ORIGINS_ALIASES = ("allowed_origins",)
+DEFAULT_ALLOWED_ORIGINS = ("https://mandyfan10-stack.github.io",)
 
 SYSTEM_PROMPT = (
     "Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). "
@@ -69,7 +70,13 @@ def get_env(name: str, aliases: tuple[str, ...] = ()) -> str:
 
 def get_allowed_origins() -> list[str]:
     origins = get_env(ALLOWED_ORIGINS_ENV, ALLOWED_ORIGINS_ALIASES)
-    return [origin.strip() for origin in origins.split(",") if origin.strip()]
+    configured_origins = [
+        origin.strip().rstrip("/")
+        for origin in origins.split(",")
+        if origin.strip()
+    ]
+
+    return configured_origins or list(DEFAULT_ALLOWED_ORIGINS)
 
 
 def create_groq_client() -> Optional[AsyncGroq]:
