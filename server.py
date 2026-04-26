@@ -50,9 +50,6 @@ logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 
-app = FastAPI()
-
-
 def get_env(name: str, aliases: tuple[str, ...] = ()) -> str:
     for env_name in (name, *aliases):
         value = os.getenv(env_name)
@@ -89,9 +86,12 @@ def create_groq_client() -> Optional[AsyncGroq]:
     return AsyncGroq(api_key=api_key, timeout=10.0)
 
 
+app = FastAPI()
+allowed_origins = get_allowed_origins()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_allowed_origins(),
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -116,7 +116,7 @@ async def health_check():
     return {
         "status": "ok",
         "ai_configured": client is not None,
-        "cors_configured": bool(get_allowed_origins()),
+        "cors_configured": bool(allowed_origins),
     }
 
 
