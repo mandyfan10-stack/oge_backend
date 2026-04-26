@@ -1,4 +1,5 @@
 from unittest.mock import patch
+from importlib import reload
 
 from fastapi.testclient import TestClient
 
@@ -19,3 +20,12 @@ def test_empty_message_after_strip_is_rejected():
     response = client.post("/api/chat", json={"text": "   "})
 
     assert response.status_code == 422
+
+
+def test_lowercase_groq_api_key_alias_is_supported(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("groq_api_key", "test-key")
+
+    reload(server)
+
+    assert server.client is not None

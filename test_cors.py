@@ -53,3 +53,14 @@ def test_cors_no_allowed_origins(monkeypatch):
     response = preflight(client, "https://example.com")
 
     assert response.headers.get("Access-Control-Allow-Origin") is None
+
+
+def test_lowercase_allowed_origins_alias_is_supported(monkeypatch):
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+    monkeypatch.setenv("allowed_origins", "https://example.com")
+    reload(server)
+    client = TestClient(server.app)
+
+    response = preflight(client, "https://example.com")
+
+    assert response.headers.get("Access-Control-Allow-Origin") == "https://example.com"
