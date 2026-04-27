@@ -6,3 +6,7 @@
 **Vulnerability:** The API endpoints were returning verbose error messages that exposed the internal name of an environment variable (`GROQ_API_KEY`) and the underlying hosting infrastructure (`Render`).
 **Learning:** Returning detailed error messages directly to the client can be a security risk (Information Leakage). In a production environment, this exposes internal configuration or infrastructure details to an attacker, potentially assisting in further reconnaissance or targeted attacks.
 **Prevention:** All unhandled exceptions or configuration errors must be caught and logged securely on the server using `logging.exception()`, but the HTTP response must contain only generic, non-descriptive messages like "Сервис временно недоступен" or "Пожалуйста, попробуй позже".
+## 2024-05-21 - Memory Leak in Rate Limiter
+**Vulnerability:** In-memory dictionary used for IP rate limiting created keys for every IP without cleanup, causing slow memory leak (potential OOM DoS).
+**Learning:** `defaultdict` creates empty lists for IPs even after filtering timestamps. If the key is not explicitly deleted, it remains in memory forever.
+**Prevention:** Explicitly delete keys when their lists become empty to prevent memory from growing unboundedly with unique client IPs.

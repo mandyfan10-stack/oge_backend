@@ -1,9 +1,11 @@
 import logging
 import os
+import time
+from collections import defaultdict
 from typing import Any, Optional
 
 import groq
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from groq import AsyncGroq
 from pydantic import BaseModel, Field, field_validator
@@ -110,6 +112,8 @@ async def add_security_headers(request, call_next):
 
 client = create_groq_client()
 
+request_counts = defaultdict(list)
+
 
 @app.get("/api/health")
 async def health_check():
@@ -138,7 +142,22 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/api/chat")
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(request: Request, req: ChatRequest):
+    ip = request.client.host if request.client else "127.0.0.1"
+    now = time.time()
+
+    # Remove timestamps older than 60 seconds
+    request_counts[ip] = [ts for ts in request_counts[ip] if now - ts < 60]
+
+    # Prevent memory leak by removing empty IPs
+    if not request_counts[ip]:
+        del request_counts[ip]
+
+    if len(request_counts.get(ip, [])) >= 10:
+        return {"reply": RATE_LIMIT_REPLY}
+
+    request_counts[ip].append(now)
+
     if not client:
         return {"reply": SERVICE_UNAVAILABLE_REPLY}
 
