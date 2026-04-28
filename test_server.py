@@ -29,3 +29,40 @@ def test_lowercase_groq_api_key_alias_is_supported(monkeypatch):
     reload(server)
 
     assert server.client is not None
+
+
+def test_rate_limiting_returns_429():
+    class DummyChoice:
+        class DummyMessage:
+            content = "hi"
+        message = DummyMessage()
+
+    class DummyResponse:
+        choices = [DummyChoice()]
+
+    class DummyCreate:
+        async def create(self, **kwargs):
+            return DummyResponse()
+
+    class DummyCompletions:
+        create = DummyCreate().create
+
+    class DummyChat:
+        completions = DummyCompletions()
+
+    class DummyClient:
+        chat = DummyChat()
+
+    with patch("server.client", new=DummyClient()):
+        # Clear rate limits before the test
+        server.ip_request_counts.clear()
+
+        # Do N successful requests up to the max limit
+        for i in range(server.RATE_LIMIT_MAX_REQUESTS):
+            response = client.post("/api/chat", json={"text": "Привет"})
+            assert response.status_code != 429
+
+        # The next request should be rate limited
+        response_429 = client.post("/api/chat", json={"text": "Привет"})
+        assert response_429.status_code == 429
+        assert response_429.json() == {"reply": server.RATE_LIMIT_REPLY}
