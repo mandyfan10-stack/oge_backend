@@ -2,9 +2,12 @@ import logging
 import os
 from typing import Any, Optional
 
+import time
+
 import groq
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from groq import AsyncGroq
 from pydantic import BaseModel, Field, field_validator
 
@@ -97,6 +100,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+ip_request_counts = {}
+RATE_LIMIT_WINDOW = 60
+RATE_LIMIT_MAX_REQUESTS = 5
+MAX_TRACKED_IPS = 10000
+
 
 @app.middleware("http")
 async def add_security_headers(request, call_next):
@@ -138,9 +146,32 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/api/chat")
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(request: Request, req: ChatRequest):
     if not client:
         return {"reply": SERVICE_UNAVAILABLE_REPLY}
+
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    now = time.time()
+
+    # Prevent unbounded memory growth from millions of unique IPs (DoS protection)
+    if len(ip_request_counts) > MAX_TRACKED_IPS:
+        for ip in list(ip_request_counts.keys()):
+            recent = [t for t in ip_request_counts[ip] if now - t < RATE_LIMIT_WINDOW]
+            if not recent:
+                del ip_request_counts[ip]
+            else:
+                ip_request_counts[ip] = recent
+        if len(ip_request_counts) > MAX_TRACKED_IPS:
+            ip_request_counts.clear()
+
+    history = ip_request_counts.get(client_ip, [])
+    history = [t for t in history if now - t < RATE_LIMIT_WINDOW]
+
+    if len(history) >= RATE_LIMIT_MAX_REQUESTS:
+        return JSONResponse(status_code=429, content={"reply": RATE_LIMIT_REPLY})
+
+    history.append(now)
+    ip_request_counts[client_ip] = history
 
     try:
         response = await client.chat.completions.create(
