@@ -29,3 +29,27 @@ def test_lowercase_groq_api_key_alias_is_supported(monkeypatch):
     reload(server)
 
     assert server.client is not None
+
+
+def test_rate_limiting_prevents_dos(monkeypatch):
+    monkeypatch.setattr(server, "RATE_LIMIT_MAX_REQUESTS", 2)
+    # Clear IP tracking state
+    server.ip_requests.clear()
+
+    # Simulate client
+    test_client = TestClient(server.app)
+
+    # First request
+    with patch("server.client.chat.completions.create"):
+        response = test_client.post("/api/chat", json={"text": "Привет"})
+    assert response.status_code == 200
+
+    # Second request (reaches limit)
+    with patch("server.client.chat.completions.create"):
+        response = test_client.post("/api/chat", json={"text": "Привет 2"})
+    assert response.status_code == 200
+
+    # Third request (exceeds limit)
+    response = test_client.post("/api/chat", json={"text": "Привет 3"})
+    assert response.status_code == 200
+    assert response.json() == {"reply": server.RATE_LIMIT_REPLY}

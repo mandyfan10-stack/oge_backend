@@ -1,9 +1,10 @@
 import logging
 import os
+import time
 from typing import Any, Optional
 
 import groq
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from groq import AsyncGroq
 from pydantic import BaseModel, Field, field_validator
@@ -48,6 +49,14 @@ GENERIC_ERROR_REPLY = (
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger(__name__)
+
+# Rate limiting configuration
+MAX_TRACKED_IPS = 1000
+RATE_LIMIT_WINDOW_SEC = 60
+RATE_LIMIT_MAX_REQUESTS = 5
+
+# Dictionary to store IP request counts: {ip: [timestamps]}
+ip_requests: dict[str, list[float]] = {}
 
 
 def get_env(name: str, aliases: tuple[str, ...] = ()) -> str:
@@ -138,9 +147,39 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/api/chat")
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(request: Request, req: ChatRequest):
     if not client:
         return {"reply": SERVICE_UNAVAILABLE_REPLY}
+
+    client_ip = getattr(request.client, "host", "")
+
+    if client_ip:
+        now = time.time()
+
+        # Cleanup if we've reached the limit
+        if len(ip_requests) >= MAX_TRACKED_IPS and client_ip not in ip_requests:
+            cutoff = now - RATE_LIMIT_WINDOW_SEC
+            # Remove expired IPs
+            for ip in list(ip_requests.keys()):
+                ip_requests[ip] = [t for t in ip_requests[ip] if t > cutoff]
+                if not ip_requests[ip]:
+                    del ip_requests[ip]
+
+            # If still at limit after cleanup, clear completely to prevent memory exhaustion
+            if len(ip_requests) >= MAX_TRACKED_IPS:
+                ip_requests.clear()
+
+        if client_ip not in ip_requests:
+            ip_requests[client_ip] = []
+
+        # Filter old requests
+        cutoff = now - RATE_LIMIT_WINDOW_SEC
+        ip_requests[client_ip] = [t for t in ip_requests[client_ip] if t > cutoff]
+
+        if len(ip_requests[client_ip]) >= RATE_LIMIT_MAX_REQUESTS:
+            return {"reply": RATE_LIMIT_REPLY}
+
+        ip_requests[client_ip].append(now)
 
     try:
         response = await client.chat.completions.create(
