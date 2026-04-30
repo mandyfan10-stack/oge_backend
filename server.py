@@ -1,9 +1,10 @@
 import logging
 import os
+import time
 from typing import Any, Optional
 
 import groq
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from groq import AsyncGroq
 from pydantic import BaseModel, Field, field_validator
@@ -137,10 +138,35 @@ class ChatRequest(BaseModel):
         return value
 
 
+MAX_TRACKED_IPS = 1000
+RATE_LIMIT_WINDOW = 60.0
+MAX_REQUESTS_PER_WINDOW = 10
+request_counts: dict[str, tuple[float, int]] = {}
+
+
 @app.post("/api/chat")
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(req: ChatRequest, request: Request):
     if not client:
         return {"reply": SERVICE_UNAVAILABLE_REPLY}
+
+    ip = request.client.host if request.client else "127.0.0.1"
+    now = time.time()
+
+    if len(request_counts) >= MAX_TRACKED_IPS:
+        expired = [k for k, v in request_counts.items() if now - v[0] > RATE_LIMIT_WINDOW]
+        for k in expired:
+            del request_counts[k]
+        if len(request_counts) >= MAX_TRACKED_IPS:
+            request_counts.clear()
+
+    window_start, count = request_counts.get(ip, (now, 0))
+    if now - window_start > RATE_LIMIT_WINDOW:
+        window_start, count = now, 0
+
+    if count >= MAX_REQUESTS_PER_WINDOW:
+        return {"reply": RATE_LIMIT_REPLY}
+
+    request_counts[ip] = (window_start, count + 1)
 
     try:
         response = await client.chat.completions.create(
