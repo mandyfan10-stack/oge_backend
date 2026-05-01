@@ -1,12 +1,18 @@
 import logging
 import os
+import time
 from typing import Any, Optional
 
 import groq
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from groq import AsyncGroq
 from pydantic import BaseModel, Field, field_validator
+
+MAX_TRACKED_IPS = 1000
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX_REQUESTS = 10
+_ip_tracking: dict[str, dict[str, Any]] = {}
 
 LOG_FORMAT = "%(levelname)s: %(message)s"
 GROQ_API_KEY_ENV = "GROQ_API_KEY"
@@ -137,10 +143,33 @@ class ChatRequest(BaseModel):
         return value
 
 
+def check_rate_limit(ip: str) -> bool:
+    current_time = time.time()
+
+    if len(_ip_tracking) >= MAX_TRACKED_IPS:
+        expired = [k for k, v in _ip_tracking.items() if current_time - v["start_time"] > RATE_LIMIT_WINDOW]
+        for k in expired:
+            del _ip_tracking[k]
+        if len(_ip_tracking) >= MAX_TRACKED_IPS:
+            _ip_tracking.clear()
+
+    record = _ip_tracking.get(ip)
+    if not record or current_time - record["start_time"] > RATE_LIMIT_WINDOW:
+        _ip_tracking[ip] = {"count": 1, "start_time": current_time}
+        return False
+
+    record["count"] += 1
+    return record["count"] > RATE_LIMIT_MAX_REQUESTS
+
+
 @app.post("/api/chat")
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(request: Request, req: ChatRequest):
     if not client:
         return {"reply": SERVICE_UNAVAILABLE_REPLY}
+
+    ip = request.client.host if request.client else "unknown"
+    if ip != "unknown" and check_rate_limit(ip):
+        return {"reply": RATE_LIMIT_REPLY}
 
     try:
         response = await client.chat.completions.create(
