@@ -3,10 +3,14 @@ import os
 from typing import Any, Optional
 
 import groq
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
 from groq import AsyncGroq
 from pydantic import BaseModel, Field, field_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 LOG_FORMAT = "%(levelname)s: %(message)s"
 GROQ_API_KEY_ENV = "GROQ_API_KEY"
@@ -73,7 +77,14 @@ def get_allowed_origins() -> list[str]:
         if origin.strip()
     ]
 
-    return configured_origins or list(DEFAULT_ALLOWED_ORIGINS)
+    defaults = list(DEFAULT_ALLOWED_ORIGINS) + [
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
+
+    return configured_origins or defaults
 
 
 def create_groq_client() -> Optional[AsyncGroq]:
@@ -97,6 +108,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"reply": RATE_LIMIT_REPLY}
+    )
+
+app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 
 @app.middleware("http")
 async def add_security_headers(request, call_next):
@@ -119,6 +140,9 @@ async def health_check():
         "cors_configured": bool(allowed_origins),
     }
 
+class ChatMessage(BaseModel):
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., min_length=1, max_length=2000)
 
 class ChatRequest(BaseModel):
     text: str = Field(
@@ -126,6 +150,10 @@ class ChatRequest(BaseModel):
         min_length=1,
         max_length=2000,
         description="User's chat message",
+    )
+    history: Optional[list[ChatMessage]] = Field(
+        default=None,
+        description="Previous messages in the conversation"
     )
 
     @field_validator("text", mode="before")
@@ -138,28 +166,44 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/api/chat")
-async def chat_endpoint(req: ChatRequest):
+@limiter.limit("6/minute")
+async def chat_endpoint(request: Request, req: ChatRequest):
     if not client:
         return {"reply": SERVICE_UNAVAILABLE_REPLY}
 
     try:
-        response = await client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Вопрос ученика: {req.text}"},
-            ],
-            temperature=0.7,
-            max_tokens=1024,
-        )
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        
+        if req.history:
+            for msg in req.history:
+                messages.append({"role": msg.role, "content": msg.content})
+        
+        messages.append({"role": "user", "content": f"Вопрос ученика: {req.text}"})
 
-        return {"reply": response.choices[0].message.content}
+        async def stream_generator():
+            try:
+                stream = await client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=1024,
+                    stream=True,
+                )
+                async for chunk in stream:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        yield content
+            except Exception as e:
+                logger.exception("Ошибка стриминга Groq")
+                yield f" [Ошибка: {GENERIC_ERROR_REPLY}]"
+
+        return StreamingResponse(stream_generator(), media_type="text/plain")
 
     except groq.RateLimitError:
-        return {"reply": RATE_LIMIT_REPLY}
+        return JSONResponse(status_code=429, content={"reply": RATE_LIMIT_REPLY})
     except groq.APITimeoutError:
         logger.exception("Превышено время ожидания от API Groq.")
-        return {"reply": TIMEOUT_REPLY}
+        return JSONResponse(status_code=504, content={"reply": TIMEOUT_REPLY})
     except Exception:
         logger.exception("Ошибка при обращении к API Groq.")
-        return {"reply": GENERIC_ERROR_REPLY}
+        return JSONResponse(status_code=500, content={"reply": GENERIC_ERROR_REPLY})
