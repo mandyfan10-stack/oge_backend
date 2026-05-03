@@ -6,3 +6,8 @@
 **Vulnerability:** The API endpoints were returning verbose error messages that exposed the internal name of an environment variable (`GROQ_API_KEY`) and the underlying hosting infrastructure (`Render`).
 **Learning:** Returning detailed error messages directly to the client can be a security risk (Information Leakage). In a production environment, this exposes internal configuration or infrastructure details to an attacker, potentially assisting in further reconnaissance or targeted attacks.
 **Prevention:** All unhandled exceptions or configuration errors must be caught and logged securely on the server using `logging.exception()`, but the HTTP response must contain only generic, non-descriptive messages like "Сервис временно недоступен" or "Пожалуйста, попробуй позже".
+
+## 2026-05-03 - Denial of Service via Memory Exhaustion in Pydantic List Fields
+**Vulnerability:** The `ChatRequest` Pydantic model allowed an unbounded `history` list, enabling an attacker to send an arbitrarily large array of messages, consuming excessive memory and potentially causing a Denial of Service (DoS).
+**Learning:** Pydantic does not enforce maximum lengths on list fields by default. Without a `max_length` constraint, the application will attempt to parse and allocate memory for every item sent by the client.
+**Prevention:** Always define explicit `max_length` constraints on list fields (e.g., `Field(max_length=50)`) when defining models that accept arrays from user input.
