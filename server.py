@@ -153,6 +153,7 @@ class ChatRequest(BaseModel):
     )
     history: Optional[list[ChatMessage]] = Field(
         default=None,
+        max_length=50,
         description="Previous messages in the conversation"
     )
 
