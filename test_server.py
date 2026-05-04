@@ -29,3 +29,8 @@ def test_lowercase_groq_api_key_alias_is_supported(monkeypatch):
     reload(server)
 
     assert server.client is not None
+
+def test_chat_request_history_max_length_limit():
+    history = [{"role": "user", "content": "hi"} for _ in range(51)]
+    response = client.post("/api/chat", json={"text": "hello", "history": history})
+    assert response.status_code == 422
