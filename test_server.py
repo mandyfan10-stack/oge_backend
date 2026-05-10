@@ -29,3 +29,9 @@ def test_lowercase_groq_api_key_alias_is_supported(monkeypatch):
     reload(server)
 
     assert server.client is not None
+
+
+def test_health_ping():
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

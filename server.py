@@ -134,11 +134,7 @@ client = create_groq_client()
 
 @app.get("/api/health")
 async def health_check():
-    return {
-        "status": "ok",
-        "ai_configured": client is not None,
-        "cors_configured": bool(allowed_origins),
-    }
+    return {"status": "ok"}
 
 class ChatMessage(BaseModel):
     role: str = Field(..., pattern="^(user|assistant)$")
