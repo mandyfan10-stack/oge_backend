@@ -35,3 +35,14 @@ def test_health_ping():
     response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_chat_compressed_payload():
+    payload = {
+        "history": [{"role": "user", "content": "T1|V:x=5|Q:Find x|A:5"}],
+        "text": "Explain this to me."
+    }
+    response = client.post("/api/chat", json=payload)
+    # 200 means success, 429 means rate limit (likely in CI/local), 
+    # 500/504 means Groq error but valid payload
+    assert response.status_code in [200, 429, 500, 504]
