@@ -3,7 +3,7 @@ import os
 from typing import Any, Optional
 
 import groq
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from groq import AsyncGroq
@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+
+from auth import verify_telegram_webapp
 
 LOG_FORMAT = "%(levelname)s: %(message)s"
 GROQ_API_KEY_ENV = "GROQ_API_KEY"
@@ -163,9 +165,16 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 @limiter.limit("6/minute")
-async def chat_endpoint(request: Request, req: ChatRequest):
+async def chat_endpoint(
+    request: Request, 
+    req: ChatRequest,
+    _auth: str = Depends(verify_telegram_webapp)
+):
     if not client:
-        return {"reply": SERVICE_UNAVAILABLE_REPLY}
+        return JSONResponse(
+            status_code=503,
+            content={"reply": SERVICE_UNAVAILABLE_REPLY}
+        )
 
     try:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -176,30 +185,35 @@ async def chat_endpoint(request: Request, req: ChatRequest):
         
         messages.append({"role": "user", "content": f"Вопрос ученика: {req.text}"})
 
-        async def stream_generator():
+        # Pre-initialize stream to catch early API errors (Rate Limit, Timeout)
+        stream = await client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1024,
+            stream=True,
+        )
+
+        async def stream_generator(groq_stream):
             try:
-                stream = await client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=messages,
-                    temperature=0.7,
-                    max_tokens=1024,
-                    stream=True,
-                )
-                async for chunk in stream:
+                async for chunk in groq_stream:
                     content = chunk.choices[0].delta.content
                     if content:
                         yield content
-            except Exception as e:
+            except Exception:
                 logger.exception("Ошибка стриминга Groq")
                 yield f" [Ошибка: {GENERIC_ERROR_REPLY}]"
 
-        return StreamingResponse(stream_generator(), media_type="text/plain")
+        return StreamingResponse(stream_generator(stream), media_type="text/plain")
 
     except groq.RateLimitError:
         return JSONResponse(status_code=429, content={"reply": RATE_LIMIT_REPLY})
     except groq.APITimeoutError:
         logger.exception("Превышено время ожидания от API Groq.")
         return JSONResponse(status_code=504, content={"reply": TIMEOUT_REPLY})
+    except groq.APIStatusError as e:
+        logger.exception(f"API Groq returned status error: {e.status_code}")
+        return JSONResponse(status_code=e.status_code, content={"reply": GENERIC_ERROR_REPLY})
     except Exception:
         logger.exception("Ошибка при обращении к API Groq.")
         return JSONResponse(status_code=500, content={"reply": GENERIC_ERROR_REPLY})
