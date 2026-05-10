@@ -1,6 +1,9 @@
 from fastapi.testclient import TestClient
 
 import server
+from auth import verify_telegram_webapp
+
+server.app.dependency_overrides[verify_telegram_webapp] = lambda: "mock_auth_data"
 
 client = TestClient(server.app)
 
