@@ -4,6 +4,9 @@ from importlib import reload
 from fastapi.testclient import TestClient
 
 import server
+from auth import verify_telegram_webapp
+
+server.app.dependency_overrides[verify_telegram_webapp] = lambda: 'mock_auth_data'
 
 client = TestClient(server.app)
 
@@ -12,7 +15,7 @@ def test_missing_groq_api_key():
     with patch("server.client", None):
         response = client.post("/api/chat", json={"text": "Привет"})
 
-        assert response.status_code == 200
+        assert response.status_code == 503
         assert response.json() == {"reply": server.SERVICE_UNAVAILABLE_REPLY}
 
 
@@ -43,6 +46,16 @@ def test_chat_compressed_payload():
         "text": "Explain this to me."
     }
     response = client.post("/api/chat", json=payload)
-    # 200 means success, 429 means rate limit (likely in CI/local), 
+    # 200 means success, 429 means rate limit (likely in CI/local),
+    # 401 means invalid groq api key (likely in CI/local)
     # 500/504 means Groq error but valid payload
-    assert response.status_code in [200, 429, 500, 504]
+    assert response.status_code in [200, 401, 429, 500, 504]
+
+
+def test_history_length_limit():
+    payload = {
+        "history": [{"role": "user", "content": "test"}] * 51,
+        "text": "hi"
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 422
