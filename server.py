@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from groq import AsyncGroq
 from pydantic import BaseModel, Field, field_validator
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
@@ -113,13 +113,16 @@ app.add_middleware(
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 
+
 def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(
         status_code=429,
         content={"reply": RATE_LIMIT_REPLY}
     )
 
+
 app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
+
 
 @app.middleware("http")
 async def add_security_headers(request, call_next):
@@ -138,9 +141,11 @@ client = create_groq_client()
 async def health_check():
     return {"status": "ok"}
 
+
 class ChatMessage(BaseModel):
     role: str = Field(..., pattern="^(user|assistant)$")
     content: str = Field(..., min_length=1, max_length=2000)
+
 
 class ChatRequest(BaseModel):
     text: str = Field(
@@ -151,6 +156,7 @@ class ChatRequest(BaseModel):
     )
     history: Optional[list[ChatMessage]] = Field(
         default=None,
+        max_length=50,
         description="Previous messages in the conversation"
     )
 
@@ -166,7 +172,7 @@ class ChatRequest(BaseModel):
 @app.post("/api/chat")
 @limiter.limit("6/minute")
 async def chat_endpoint(
-    request: Request, 
+    request: Request,
     req: ChatRequest,
     _auth: str = Depends(verify_telegram_webapp)
 ):
@@ -178,11 +184,11 @@ async def chat_endpoint(
 
     try:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        
+
         if req.history:
             for msg in req.history:
                 messages.append({"role": msg.role, "content": msg.content})
-        
+
         messages.append({"role": "user", "content": f"Вопрос ученика: {req.text}"})
 
         # Pre-initialize stream to catch early API errors (Rate Limit, Timeout)
