@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 # The Telegram Bot Token must be securely stored in environment variables.
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
+
 def validate_telegram_init_data(init_data: str) -> bool:
     """
     Cryptographically verifies the authenticity of the Telegram WebApp initData.
@@ -72,11 +73,11 @@ async def verify_telegram_webapp(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing Authentication Header",
         )
-    
+
     if not validate_telegram_init_data(x_telegram_init_data):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid or Expired Telegram Authentication Data",
         )
-    
+
     return x_telegram_init_data
