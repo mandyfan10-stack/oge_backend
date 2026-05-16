@@ -5,3 +5,6 @@ pytest-cache-files-*/
 .venv/
 venv/
 *.env
+
+# Internal dev notes — must not be in a public repo
+.jules/
