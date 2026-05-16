@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from typing import Any, Optional
@@ -21,7 +22,6 @@ ALLOWED_ORIGINS_ENV = "ALLOWED_ORIGINS"
 ALLOWED_ORIGINS_ALIASES = ("allowed_origins",)
 DEFAULT_ALLOWED_ORIGINS = ("https://mandyfan10-stack.github.io",)
 
-# Базовый системный промпт. Мы будем динамически добавлять к нему контекст задачи
 BASE_SYSTEM_PROMPT = (
     "Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). "
     "Отвечай на русском языке кратко, дружелюбно, используй эмодзи по минимуму. "
@@ -54,12 +54,14 @@ GENERIC_ERROR_REPLY = "Произошла ошибка на сервере пр�
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
+
 def get_env(name: str, aliases: tuple[str, ...] = ()) -> str:
     for env_name in (name, *aliases):
         value = os.getenv(env_name)
         if value:
             return value
     return ""
+
 
 def get_allowed_origins() -> list[str]:
     origins = get_env(ALLOWED_ORIGINS_ENV, ALLOWED_ORIGINS_ALIASES)
@@ -68,13 +70,22 @@ def get_allowed_origins() -> list[str]:
         for origin in origins.split(",")
         if origin.strip()
     ]
-    defaults = list(DEFAULT_ALLOWED_ORIGINS) + [
+    if configured_origins:
+        return configured_origins
+
+    # [FIX] localhost origins used ONLY as fallback in dev (no ALLOWED_ORIGINS set).
+    # In production, always set ALLOWED_ORIGINS explicitly.
+    logger.warning(
+        "ALLOWED_ORIGINS is not set — falling back to default origins including localhost. "
+        "Set ALLOWED_ORIGINS in production to restrict access."
+    )
+    return list(DEFAULT_ALLOWED_ORIGINS) + [
         "http://localhost",
         "http://127.0.0.1",
         "http://localhost:5173",
         "http://localhost:3000",
     ]
-    return configured_origins or defaults
+
 
 def create_groq_client() -> Optional[AsyncGroq]:
     api_key = get_env(GROQ_API_KEY_ENV, GROQ_API_KEY_ALIASES)
@@ -83,6 +94,7 @@ def create_groq_client() -> Optional[AsyncGroq]:
         return None
     return AsyncGroq(api_key=api_key, timeout=10.0)
 
+
 app = FastAPI()
 allowed_origins = get_allowed_origins()
 
@@ -90,17 +102,21 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # [FIX] Restrict to only the methods and headers actually used — principle of least privilege.
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Telegram-Init-Data"],
 )
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 
+
 def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(status_code=429, content={"reply": RATE_LIMIT_REPLY})
 
+
 app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
+
 
 @app.middleware("http")
 async def add_security_headers(request, call_next):
@@ -109,22 +125,30 @@ async def add_security_headers(request, call_next):
         response.headers[header] = value
     return response
 
+
 client = create_groq_client()
+
 
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok"}
 
+
 class ChatMessage(BaseModel):
-    # Строго только user или assistant. Фронтенд больше не должен слать system!
     role: str = Field(..., pattern="^(user|assistant)$")
     content: str = Field(..., min_length=1, max_length=2000)
+
 
 class ChatRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="User's chat message")
     history: Optional[list[ChatMessage]] = Field(default=None, description="Previous messages")
-    # Добавлено поле для контекста задачи (чтобы не ломать history)
-    task_context: Optional[str] = Field(default=None, description="Task context data from frontend")
+    # [FIX] Added max_length to prevent oversized prompt injection payloads.
+    # Long-term: replace task_context with a task_id looked up server-side.
+    task_context: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Task context data from frontend",
+    )
 
     @field_validator("text", mode="before")
     @classmethod
@@ -133,30 +157,30 @@ class ChatRequest(BaseModel):
             return value.strip()
         return value
 
+
 @app.post("/api/chat")
 @limiter.limit("6/minute")
 async def chat_endpoint(
-    request: Request, 
+    request: Request,
     req: ChatRequest,
-    _auth: str = Depends(verify_telegram_webapp)
+    _auth: str = Depends(verify_telegram_webapp),
 ):
     if not client:
         return JSONResponse(status_code=503, content={"reply": SERVICE_UNAVAILABLE_REPLY})
 
     try:
-        # 1. Формируем безопасный системный промпт на бэкенде
         final_system_prompt = BASE_SYSTEM_PROMPT
         if req.task_context:
-             final_system_prompt += f"\n\nТЕКУЩИЙ КОНТЕКСТ ЗАДАЧИ (ВНУТРЕННИЕ ДАННЫЕ):\n{req.task_context}"
+            final_system_prompt += (
+                f"\n\nТЕКУЩИЙ КОНТЕКСТ ЗАДАЧИ (ВНУТРЕННИЕ ДАННЫЕ):\n{req.task_context}"
+            )
 
         messages = [{"role": "system", "content": final_system_prompt}]
-        
-        # 2. Добавляем историю переписки
+
         if req.history:
             for msg in req.history:
                 messages.append({"role": msg.role, "content": msg.content})
-        
-        # 3. Сообщение пользователя
+
         messages.append({"role": "user", "content": f"Вопрос ученика: {req.text}"})
 
         stream = await client.chat.completions.create(
@@ -173,6 +197,10 @@ async def chat_endpoint(
                     content = chunk.choices[0].delta.content
                     if content:
                         yield content
+            except asyncio.CancelledError:
+                # [FIX] Client disconnected — stop consuming the Groq stream immediately.
+                logger.info("Клиент отключился во время стриминга.")
+                raise
             except Exception:
                 logger.exception("Ошибка стриминга Groq")
                 yield f" [Ошибка: {GENERIC_ERROR_REPLY}]"
@@ -185,8 +213,10 @@ async def chat_endpoint(
         logger.exception("Превышено время ожидания от API Groq.")
         return JSONResponse(status_code=504, content={"reply": TIMEOUT_REPLY})
     except groq.APIStatusError as e:
-        logger.exception(f"API Groq returned status error: {e.status_code}")
-        return JSONResponse(status_code=e.status_code, content={"reply": GENERIC_ERROR_REPLY})
+        # [FIX] Log the real Groq status code but always return 503 to the client
+        # to avoid leaking billing/auth state of the Groq integration.
+        logger.exception("API Groq вернул статус %s", e.status_code)
+        return JSONResponse(status_code=503, content={"reply": SERVICE_UNAVAILABLE_REPLY})
     except Exception:
         logger.exception("Ошибка при обращении к API Groq.")
         return JSONResponse(status_code=500, content={"reply": GENERIC_ERROR_REPLY})
