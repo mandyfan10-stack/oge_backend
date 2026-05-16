@@ -141,7 +141,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="User's chat message")
-    history: Optional[list[ChatMessage]] = Field(default=None, description="Previous messages")
+    history: Optional[list[ChatMessage]] = Field(default=None, max_length=50, description="Previous messages")
     # [FIX] Added max_length to prevent oversized prompt injection payloads.
     # Long-term: replace task_context with a task_id looked up server-side.
     task_context: Optional[str] = Field(

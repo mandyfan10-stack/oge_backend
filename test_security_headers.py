@@ -12,16 +12,17 @@ from auth import verify_telegram_webapp
 # Without this, every POST /api/chat returns 401 before reaching the endpoint.
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def mock_telegram_auth():
     """Override the Telegram auth dependency with a no-op for unit tests."""
-    server.app.dependency_overrides[verify_telegram_webapp] = lambda: "test-user"
+    server.app.dependency_overrides[server.verify_telegram_webapp] = lambda: "mock_auth_data"
     yield
     server.app.dependency_overrides.clear()
 
 
 @pytest.fixture
-def client():
+def client(mock_telegram_auth):
     return TestClient(server.app)
 
 
@@ -103,3 +104,15 @@ def test_chat_compressed_payload(client):
     response = client.post("/api/chat", json=payload)
     # 200 = success, 429 = rate limit, 500/503/504 = Groq error — all valid for a real payload
     assert response.status_code in [200, 429, 500, 503, 504]
+
+
+def test_history_max_length_is_rejected(client):
+    """History longer than 50 items is rejected to prevent DoS via memory exhaustion."""
+    response = client.post(
+        "/api/chat",
+        json={
+            "text": "Привет",
+            "history": [{"role": "user", "content": "hello"}] * 51
+        },
+    )
+    assert response.status_code == 422
