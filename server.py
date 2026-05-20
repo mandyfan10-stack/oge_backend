@@ -142,12 +142,17 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="User's chat message")
     history: Optional[list[ChatMessage]] = Field(default=None, description="Previous messages")
-    # [FIX] Added max_length to prevent oversized prompt injection payloads.
-    # Long-term: replace task_context with a task_id looked up server-side.
+    # TODO(SECURITY): CRITICAL ARCHITECTURAL VULNERABILITY — ANSWER LEAK
+    # The client currently transmits the correct answer inside `task_context`, which means
+    # any user can read it via browser DevTools / network inspection.
+    # FIX: Remove `task_context` from this request model entirely. Instead, accept only a
+    # `task_id: str` here and perform a server-side lookup (e.g. from a database or cache)
+    # to retrieve task metadata including the correct answer. The client must NEVER have
+    # access to or transmit the correct answer to this endpoint.
     task_context: Optional[str] = Field(
         default=None,
         max_length=500,
-        description="Task context data from frontend",
+        description="Task context data from frontend (see security TODO above)",
     )
 
     @field_validator("text", mode="before")
@@ -198,12 +203,16 @@ async def chat_endpoint(
                     if content:
                         yield content
             except asyncio.CancelledError:
-                # [FIX] Client disconnected — stop consuming the Groq stream immediately.
+                # Client disconnected — stop consuming the Groq stream immediately.
                 logger.info("Клиент отключился во время стриминга.")
                 raise
             except Exception:
                 logger.exception("Ошибка стриминга Groq")
                 yield f" [Ошибка: {GENERIC_ERROR_REPLY}]"
+            finally:
+                # Always close the Groq streaming connection to prevent resource leaks,
+                # regardless of whether iteration completed normally, was cancelled, or errored.
+                await groq_stream.close()
 
         return StreamingResponse(stream_generator(stream), media_type="text/plain")
 
