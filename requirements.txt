@@ -1,5 +1,6 @@
-fastapi
-uvicorn
-groq
-pydantic
-slowapi
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+groq==0.11.0
+pydantic==2.10.3
+slowapi==0.1.9
+httpx==0.27.2
