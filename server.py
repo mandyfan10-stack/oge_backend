@@ -18,11 +18,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from groq import AsyncGroq
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 import state
+from rate_limit import limiter
 from routes.chat import router as chat_router
 from routes.health import router as health_router
 
@@ -110,7 +109,6 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Telegram-Init-Data"],
 )
 
-limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(
     RateLimitExceeded,

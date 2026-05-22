@@ -4,16 +4,15 @@ import uuid
 import groq
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
+import state
 from auth import verify_telegram_webapp
+from rate_limit import limiter
 from schemas import ChatRequest
 from services.groq_service import build_messages, stream_groq
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
 
 SERVICE_UNAVAILABLE_REPLY = "Ошибка сервера: Сервис временно недоступен."
 RATE_LIMIT_REPLY = (
@@ -31,8 +30,7 @@ async def chat_endpoint(
     req: ChatRequest,
     _auth: str = Depends(verify_telegram_webapp),
 ):
-    from state import groq_client
-    if not groq_client:
+    if not state.groq_client:
         return JSONResponse(status_code=503, content={"reply": SERVICE_UNAVAILABLE_REPLY})
 
     request_id = str(uuid.uuid4())[:8]
@@ -41,7 +39,7 @@ async def chat_endpoint(
     try:
         messages = build_messages(req.text, req.history, req.task_description)
         return StreamingResponse(
-            stream_groq(groq_client, messages, request_id),
+            stream_groq(state.groq_client, messages, request_id),
             media_type="text/plain",
         )
     except groq.RateLimitError:
