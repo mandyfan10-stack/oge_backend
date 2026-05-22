@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: oge-backend
+    runtime: python
+    plan: free
+    pythonVersion: "3.11.10"
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://mandyfan10-stack.github.io
