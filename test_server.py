@@ -75,6 +75,28 @@ def test_history_over_cap_is_rejected(client):
     assert response.status_code == 422
 
 
+def test_empty_history_content_is_silently_dropped(client):
+    """Empty/whitespace history items must be filtered out without 422.
+
+    This protects users whose localStorage was poisoned by an interrupted
+    stream that left an empty assistant placeholder. groq_client is patched
+    to None so we get 503 (validation passed) instead of trying to stream.
+    """
+    with patch.object(state, "groq_client", None):
+        response = client.post(
+            "/api/chat",
+            json={
+                "text": "Привет",
+                "history": [
+                    {"role": "user", "content": "вопрос"},
+                    {"role": "assistant", "content": ""},
+                    {"role": "assistant", "content": "   "},
+                ],
+            },
+        )
+        assert response.status_code == 503  # not 422
+
+
 def test_lowercase_groq_api_key_alias_is_supported(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setenv("groq_api_key", "test-key")

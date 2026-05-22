@@ -24,3 +24,21 @@ class ChatRequest(BaseModel):
         if isinstance(value, str):
             return value.strip()
         return value
+
+    @field_validator("history", mode="before")
+    @classmethod
+    def drop_empty_history_items(cls, value: Any) -> Any:
+        # Defensive: an old frontend may persist an empty assistant placeholder
+        # (from an interrupted stream) and replay it as a history item. Silently
+        # discard those so a stale localStorage doesn't poison the whole request.
+        if not value or not isinstance(value, list):
+            return value
+        cleaned = []
+        for item in value:
+            if isinstance(item, dict):
+                content = item.get("content")
+                if isinstance(content, str) and content.strip():
+                    cleaned.append(item)
+            else:
+                cleaned.append(item)
+        return cleaned
