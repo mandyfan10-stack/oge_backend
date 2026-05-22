@@ -21,6 +21,7 @@ from groq import AsyncGroq
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import state
 from routes.chat import router as chat_router
@@ -37,6 +38,14 @@ RATE_LIMIT_REPLY = (
     "Упс! Кажется, нейросеть сейчас немного перегружена запросами ⏳ "
     "Пожалуйста, подожди несколько секунд и попробуй снова!"
 )
+
+# Map HTTP error statuses to user-facing replies for the frontend.
+# The frontend's chatClient.extractErrorMessage looks for `reply`
+# first; FastAPI's default `{"detail": ...}` would not be parsed.
+AUTH_REPLY_MAP = {
+    401: "Сессия Telegram отсутствует. Перезапустите мини-приложение через бота.",
+    403: "Подпись Telegram недействительна или истекла. Перезапустите мини-приложение.",
+}
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -116,6 +125,15 @@ app.add_exception_handler(
     RateLimitExceeded,
     lambda req, exc: JSONResponse(status_code=429, content={"reply": RATE_LIMIT_REPLY}),
 )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    reply = AUTH_REPLY_MAP.get(exc.status_code, str(exc.detail))
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"reply": reply, "detail": exc.detail},
+    )
 
 
 @app.middleware("http")
