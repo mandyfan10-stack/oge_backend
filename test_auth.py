@@ -12,10 +12,6 @@ import hashlib
 import time
 from urllib.parse import urlencode
 
-import pytest
-
-from auth import validate_telegram_init_data
-
 
 def _make_init_data(bot_token: str, extra: dict | None = None, age_seconds: int = 0) -> str:
     """Helper: build a valid signed Telegram initData string."""
@@ -49,8 +45,8 @@ BOT_TOKEN = "test-bot-token-12345"
 
 def test_valid_init_data_passes(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", BOT_TOKEN)
-    # Re-import to pick up the env var
-    import importlib, auth
+    import importlib
+    import auth
     importlib.reload(auth)
 
     init_data = _make_init_data(BOT_TOKEN)
@@ -59,18 +55,19 @@ def test_valid_init_data_passes(monkeypatch):
 
 def test_wrong_hash_is_rejected(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", BOT_TOKEN)
-    import importlib, auth
+    import importlib
+    import auth
     importlib.reload(auth)
 
     init_data = _make_init_data(BOT_TOKEN)
-    # Tamper with the hash
     tampered = init_data.replace(init_data.split("hash=")[1][:8], "deadbeef")
     assert auth.validate_telegram_init_data(tampered) is False
 
 
 def test_missing_hash_is_rejected(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", BOT_TOKEN)
-    import importlib, auth
+    import importlib
+    import auth
     importlib.reload(auth)
 
     init_data = f"auth_date={int(time.time())}&user=test"
@@ -80,10 +77,10 @@ def test_missing_hash_is_rejected(monkeypatch):
 def test_expired_auth_date_is_rejected(monkeypatch):
     """Auth tokens older than 24 h must be rejected (replay attack prevention)."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", BOT_TOKEN)
-    import importlib, auth
+    import importlib
+    import auth
     importlib.reload(auth)
 
-    # 25 hours ago
     old_init_data = _make_init_data(BOT_TOKEN, age_seconds=25 * 3600)
     assert auth.validate_telegram_init_data(old_init_data) is False
 
@@ -91,7 +88,8 @@ def test_expired_auth_date_is_rejected(monkeypatch):
 def test_missing_bot_token_fails_closed(monkeypatch):
     """If TELEGRAM_BOT_TOKEN is not set, every request must be denied."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    import importlib, auth
+    import importlib
+    import auth
     importlib.reload(auth)
 
     init_data = _make_init_data(BOT_TOKEN)
