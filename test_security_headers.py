@@ -88,7 +88,9 @@ def test_health_ok_when_groq_initialized():
         c = TestClient(server.app)
         response = c.get("/api/health")
         assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
+        body = response.json()
+        assert body["status"] == "ok"
+        assert body["groq"] is True
 
 
 def test_health_503_when_groq_unavailable():
