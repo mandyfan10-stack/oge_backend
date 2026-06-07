@@ -94,3 +94,14 @@ def test_missing_bot_token_fails_closed(monkeypatch):
 
     init_data = _make_init_data(BOT_TOKEN)
     assert auth.validate_telegram_init_data(init_data) is False
+
+
+def test_malformed_auth_date_is_rejected(monkeypatch):
+    """A non-numeric auth_date must be rejected, not crash with a 500."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", BOT_TOKEN)
+    import importlib
+    import auth
+    importlib.reload(auth)
+
+    init_data = "auth_date=not-a-number&user=test&hash=deadbeef"
+    assert auth.validate_telegram_init_data(init_data) is False

@@ -18,12 +18,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from groq import AsyncGroq
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import state
+from messages import AUTH_REPLY_MAP, RATE_LIMIT_REPLY
+from rate_limit import limiter
 from routes.chat import router as chat_router
 from routes.health import router as health_router
 
@@ -33,19 +33,6 @@ GROQ_API_KEY_ALIASES = ("groq_api_key",)
 ALLOWED_ORIGINS_ENV = "ALLOWED_ORIGINS"
 ALLOWED_ORIGINS_ALIASES = ("allowed_origins",)
 DEFAULT_ALLOWED_ORIGINS = ("https://mandyfan10-stack.github.io",)
-
-RATE_LIMIT_REPLY = (
-    "Упс! Кажется, нейросеть сейчас немного перегружена запросами ⏳ "
-    "Пожалуйста, подожди несколько секунд и попробуй снова!"
-)
-
-# Map HTTP error statuses to user-facing replies for the frontend.
-# The frontend's chatClient.extractErrorMessage looks for `reply`
-# first; FastAPI's default `{"detail": ...}` would not be parsed.
-AUTH_REPLY_MAP = {
-    401: "Сессия Telegram отсутствует. Перезапустите мини-приложение через бота.",
-    403: "Подпись Telegram недействительна или истекла. Перезапустите мини-приложение.",
-}
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -103,7 +90,7 @@ async def lifespan(app_: FastAPI):
     yield
     if state.groq_client:
         try:
-            await state.groq_client._client.aclose()
+            await state.groq_client.close()
         except Exception:
             pass
     logger.info("Приложение остановлено.")
@@ -119,7 +106,6 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Telegram-Init-Data"],
 )
 
-limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(
     RateLimitExceeded,

@@ -32,7 +32,11 @@ def validate_telegram_init_data(init_data: str) -> bool:
     received_hash = parsed_data.pop("hash")
 
     # [Security] Prevent Replay Attacks: Enforce token expiration (e.g., 24 hours)
-    auth_date = int(parsed_data.get("auth_date", 0))
+    try:
+        auth_date = int(parsed_data.get("auth_date", 0))
+    except (ValueError, TypeError):
+        logger.warning("Telegram auth_date malformed. Rejecting.")
+        return False
     if time.time() - auth_date > 86400:
         logger.warning("Telegram auth_date expired. Potential replay attack.")
         return False

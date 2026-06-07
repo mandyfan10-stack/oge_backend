@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 import server
 import state
 from auth import verify_telegram_webapp
+from services.groq_service import stream_groq
 
 
 @pytest.fixture(autouse=True)
@@ -121,3 +123,66 @@ def test_health_503_when_groq_unavailable():
         c = TestClient(server.app)
         response = c.get("/api/health")
         assert response.status_code == 503
+
+
+# --- stream_groq robustness -------------------------------------------------
+
+
+class _FakeDelta:
+    def __init__(self, content):
+        self.content = content
+
+
+class _FakeChoice:
+    def __init__(self, delta):
+        self.delta = delta
+
+
+class _FakeChunk:
+    def __init__(self, choices):
+        self.choices = choices
+
+
+class _FakeStream:
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    async def __aiter__(self):
+        for chunk in self._chunks:
+            yield chunk
+
+    async def close(self):
+        pass
+
+
+class _FakeClient:
+    """Minimal stand-in for AsyncGroq: client.chat.completions.create()."""
+
+    def __init__(self, stream):
+        async def _create(**_kwargs):
+            return stream
+
+        self.chat = type(
+            "Chat", (), {"completions": type("C", (), {"create": staticmethod(_create)})()}
+        )()
+
+
+def test_stream_groq_skips_malformed_chunks():
+    """Chunks with empty choices or a delta without content must be skipped
+    instead of raising IndexError/AttributeError and aborting the stream."""
+    chunks = [
+        _FakeChunk([]),                          # empty choices → skip
+        _FakeChunk([_FakeChoice(None)]),         # delta is None → skip
+        _FakeChunk([_FakeChoice(_FakeDelta(None))]),  # delta.content None → skip
+        _FakeChunk([_FakeChoice(_FakeDelta("Привет"))]),
+        _FakeChunk([_FakeChoice(_FakeDelta("!"))]),
+    ]
+    client = _FakeClient(_FakeStream(chunks))
+
+    async def collect():
+        out = []
+        async for piece in stream_groq(client, [], "test-id"):
+            out.append(piece)
+        return out
+
+    assert "".join(asyncio.run(collect())) == "Привет!"

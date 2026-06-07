@@ -4,24 +4,20 @@ import uuid
 import groq
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from auth import verify_telegram_webapp
+from messages import (
+    GENERIC_ERROR_REPLY,
+    RATE_LIMIT_REPLY,
+    SERVICE_UNAVAILABLE_REPLY,
+    TIMEOUT_REPLY,
+)
+from rate_limit import limiter
 from schemas import ChatRequest
 from services.groq_service import build_messages, stream_groq
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
-
-SERVICE_UNAVAILABLE_REPLY = "Ошибка сервера: Сервис временно недоступен."
-RATE_LIMIT_REPLY = (
-    "Упс! Кажется, нейросеть сейчас немного перегружена запросами ⏳ "
-    "Пожалуйста, подожди несколько секунд и попробуй снова!"
-)
-TIMEOUT_REPLY = "Превышено время ожидания ответа от ИИ. Пожалуйста, попробуй позже."
-GENERIC_ERROR_REPLY = "Произошла ошибка на сервере при обращении к ИИ. Пожалуйста, попробуй позже."
 
 
 @router.post("/api/chat")

@@ -4,6 +4,8 @@ from typing import AsyncGenerator
 
 from groq import AsyncGroq
 
+from messages import GENERIC_ERROR_REPLY, TIMEOUT_REPLY
+
 logger = logging.getLogger(__name__)
 
 BASE_SYSTEM_PROMPT = (
@@ -12,9 +14,6 @@ BASE_SYSTEM_PROMPT = (
     "Твоя цель — помочь ученику САМОМУ прийти к ответу через наводящие вопросы и объяснение теории. "
     "Не давай ответ напрямую."
 )
-
-TIMEOUT_REPLY = "Превышено время ожидания ответа от ИИ. Пожалуйста, попробуй позже."
-GENERIC_ERROR_REPLY = "Произошла ошибка на сервере при обращении к ИИ. Пожалуйста, попробуй позже."
 
 
 def build_messages(text: str, history, task_description: str | None) -> list[dict]:
@@ -43,7 +42,13 @@ async def stream_groq(
     try:
         async def _inner():
             async for chunk in stream:
-                content = chunk.choices[0].delta.content
+                # Groq may emit chunks with an empty `choices` list or a
+                # `delta` without `content` (e.g. role-only or final chunks);
+                # guard against IndexError/AttributeError.
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                content = getattr(delta, "content", None) if delta else None
                 if content:
                     yield content
 
