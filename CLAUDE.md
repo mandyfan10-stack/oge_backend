@@ -5,7 +5,8 @@ FastAPI-бэкенд для Telegram WebApp `oge-bot`. Обслуживает ч
 ## Что делает
 
 - `POST /api/chat` — стримит ответ от Groq как `text/plain` (плоский поток токенов, не SSE).
-- `GET  /api/health` — статус приложения и наличие ключей.
+- `GET  /api/health` — статус приложения, наличие ключей, активная модель.
+- `GET  /` — информационный landing-payload (вместо 404 при открытии URL Render в браузере).
 
 ## Архитектура
 
@@ -59,6 +60,7 @@ Header: `X-Telegram-Init-Data: <Telegram WebApp initData>` (обязателен
 | `GROQ_API_KEY` | ключ Groq | принимает также `groq_api_key` (lowercase alias) |
 | `TELEGRAM_BOT_TOKEN` | bot token для HMAC-проверки initData | без него auth fails closed (все запросы 401/403) |
 | `ALLOWED_ORIGINS` | CSV-список разрешённых Origin | принимает `allowed_origins` alias; по умолчанию `https://mandyfan10-stack.github.io` + localhost |
+| `GROQ_MODEL` | переопределение модели Groq | по умолчанию `llama-3.3-70b-versatile` (см. `services/groq_service.py: get_model`) |
 
 `.env.example` — шаблон.
 

@@ -125,6 +125,33 @@ def test_health_503_when_groq_unavailable():
         assert response.status_code == 503
 
 
+def test_health_reports_active_model(monkeypatch):
+    monkeypatch.setenv("GROQ_MODEL", "test-model-id")
+    with patch.object(state, "groq_client", "fake-client"):
+        c = TestClient(server.app)
+        body = c.get("/api/health").json()
+        assert body["model"] == "test-model-id"
+
+
+def test_root_returns_service_info():
+    """GET / is a friendly landing payload, not a bare 404."""
+    c = TestClient(server.app)
+    response = c.get("/")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["service"] == "oge-backend"
+    assert body["health"] == "/api/health"
+
+
+def test_groq_model_env_override(monkeypatch):
+    from services.groq_service import DEFAULT_MODEL, get_model
+
+    monkeypatch.delenv("GROQ_MODEL", raising=False)
+    assert get_model() == DEFAULT_MODEL
+    monkeypatch.setenv("GROQ_MODEL", "llama-x")
+    assert get_model() == "llama-x"
+
+
 # --- stream_groq robustness -------------------------------------------------
 
 

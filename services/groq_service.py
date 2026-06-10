@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from typing import AsyncGenerator
 
 from groq import AsyncGroq
@@ -7,6 +8,14 @@ from groq import AsyncGroq
 from messages import GENERIC_ERROR_REPLY, TIMEOUT_REPLY
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
+
+def get_model() -> str:
+    """Active Groq model. Overridable via GROQ_MODEL so the model can be
+    swapped on Render without redeploying code."""
+    return os.getenv("GROQ_MODEL") or DEFAULT_MODEL
 
 BASE_SYSTEM_PROMPT = (
     "Ты изящный и умный ИИ-репетитор по информатике (ОГЭ). "
@@ -32,7 +41,7 @@ async def stream_groq(
     client: AsyncGroq, messages: list[dict], request_id: str
 ) -> AsyncGenerator[str, None]:
     stream = await client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=get_model(),
         messages=messages,
         temperature=0.7,
         max_tokens=1024,
